@@ -123,3 +123,172 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* ── Color Picker ──────────────────────────────── */
+.cp-sv-wrapper {
+  position: relative;
+  width: 200px;
+  height: 150px;
+  border-radius: 4px;
+  overflow: hidden;
+  cursor: crosshair;
+  user-select: none;
+}
+.cp-sv-canvas {
+  display: block;
+  width: 200px;
+  height: 150px;
+}
+.cp-sv-cursor {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.45);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.cp-hue-wrapper {
+  position: relative;
+  width: 200px;
+  height: 14px;
+  border-radius: 7px;
+  overflow: hidden;
+  margin-top: 8px;
+  cursor: ew-resize;
+  user-select: none;
+}
+.cp-hue-canvas {
+  display: block;
+  width: 200px;
+  height: 14px;
+}
+.cp-hue-cursor {
+  position: absolute;
+  top: 0;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.35);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+.cp-inputs-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 9px;
+}
+.cp-preview {
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  border: 1px solid #e5e7eb;
+  flex-shrink: 0;
+}
+.cp-input-group {
+  display: flex;
+  gap: 3px;
+  flex: 1;
+}
+.cp-hex-input {
+  width: 58px;
+  padding: 3px 5px;
+  font-size: 11px;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  text-transform: uppercase;
+  outline: none;
+  font-family: monospace;
+  color: #111827;
+}
+.cp-hex-input:focus { border-color: #9ca3af; }
+.cp-num-input {
+  width: 36px;
+  padding: 3px 4px;
+  font-size: 11px;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  outline: none;
+  text-align: center;
+  color: #111827;
+}
+.cp-num-input:focus { border-color: #9ca3af; }
+.cp-num-input::-webkit-inner-spin-button,
+.cp-num-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.cp-input-labels {
+  display: flex;
+  gap: 3px;
+  margin-top: 2px;
+  padding-left: 33px;
+}
+.cp-input-labels span {
+  font-size: 9px;
+  color: #9ca3af;
+  text-align: center;
+  font-weight: 500;
+}
+.cp-input-labels span:first-child { width: 58px; }
+.cp-input-labels span:not(:first-child) { width: 36px; }
+
+.chart-settings-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.chart-color-swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: transform 0.12s ease, border-color 0.12s ease;
+  outline: none;
+}
+.chart-color-swatch:hover { transform: scale(1.18); }
+.chart-color-swatch.active {
+  border-color: #111827;
+  transform: scale(1.18);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.22);
+}
+
+/* ── Settings panel ─────────────────────────────── */
+.chart-settings-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  cursor: pointer;
+  user-select: none;
+  font-size: 13px;
+  color: #374151;
+  white-space: nowrap;
+}
+.chart-settings-checkbox {
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  border: 1.5px solid #d1d5db;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.1s, border-color 0.1s;
+}
+.chart-settings-color-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1.5px solid #d1d5db;
+  display: inline-block;
+  flex-shrink: 0;
+  transition: border-color 0.2s;
+}
+
+/* ── Bar entrance animation ─────────────────────── */
+.chart-bar-animated {
+  transition: transform 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+}

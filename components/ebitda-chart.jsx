@@ -2,15 +2,12 @@
 
 import React, { useRef, useEffect, useState, useCallback } from 'react'
 import * as d3 from 'd3'
-import { Switch } from '@/components/ui/switch'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
   BarChart3,
   Table,
   CalendarRange,
   Play,
   Pause,
-  Settings,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -20,10 +17,213 @@ import {
 
 import { toast } from 'sonner'
 import { metricOptions, colorPresets, allChartsData } from '@/lib/chart-data'
+
+// ── Color conversion helpers ──────────────────────────────────
+function hsvToRgb(h, s, v) {
+  s /= 100; v /= 100
+  const i = Math.floor(h / 60) % 6
+  const f = h / 60 - Math.floor(h / 60)
+  const p = v * (1 - s)
+  const q = v * (1 - f * s)
+  const t = v * (1 - (1 - f) * s)
+  const cases = [[v,t,p],[q,v,p],[p,v,t],[p,q,v],[t,p,v],[v,p,q]]
+  const [r,g,b] = cases[i]
+  return { r: Math.round(r*255), g: Math.round(g*255), b: Math.round(b*255) }
+}
+function rgbToHsv(r, g, b) {
+  r /= 255; g /= 255; b /= 255
+  const max = Math.max(r,g,b), min = Math.min(r,g,b), d = max - min
+  let h = 0
+  const s = max === 0 ? 0 : d / max
+  const v = max
+  if (max !== min) {
+    if (max === r) h = (g - b) / d + (g < b ? 6 : 0)
+    else if (max === g) h = (b - r) / d + 2
+    else h = (r - g) / d + 4
+    h /= 6
+  }
+  return { h: Math.round(h * 360), s: Math.round(s * 100), v: Math.round(v * 100) }
+}
+function rgbToHex(r, g, b) {
+  return '#' + [r,g,b].map(x => x.toString(16).padStart(2,'0')).join('')
+}
+function hexToRgb(hex) {
+  const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
+  return m ? { r: parseInt(m[1],16), g: parseInt(m[2],16), b: parseInt(m[3],16) } : null
+}
+
+// ── Canvas Color Picker ───────────────────────────────────────
+function ColorPicker({ color, onChange, presets }) {
+  const svRef = useRef(null)
+  const hueRef = useRef(null)
+  const dragging = useRef(null)
+
+  const initHsv = useCallback(() => {
+    const rgb = hexToRgb(color)
+    return rgb ? rgbToHsv(rgb.r, rgb.g, rgb.b) : { h: 120, s: 82, v: 76 }
+  }, [color])
+
+  const [hsv, setHsv] = useState(initHsv)
+  const [alpha, setAlpha] = useState(100)
+  const [hexInput, setHexInput] = useState(color.replace('#','').toUpperCase())
+
+  // Sync external color changes into picker state
+  useEffect(() => {
+    const rgb = hexToRgb(color)
+    if (!rgb) return
+    const newHsv = rgbToHsv(rgb.r, rgb.g, rgb.b)
+    setHsv(newHsv)
+    setHexInput(color.replace('#','').toUpperCase())
+  }, [color])
+
+  // Draw SV canvas
+  useEffect(() => {
+    const canvas = svRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    ctx.clearRect(0, 0, 200, 150)
+    const hGrad = ctx.createLinearGradient(0, 0, 200, 0)
+    hGrad.addColorStop(0, '#fff')
+    hGrad.addColorStop(1, `hsl(${hsv.h},100%,50%)`)
+    ctx.fillStyle = hGrad
+    ctx.fillRect(0, 0, 200, 150)
+    const vGrad = ctx.createLinearGradient(0, 0, 0, 150)
+    vGrad.addColorStop(0, 'rgba(0,0,0,0)')
+    vGrad.addColorStop(1, '#000')
+    ctx.fillStyle = vGrad
+    ctx.fillRect(0, 0, 200, 150)
+  }, [hsv.h])
+
+  // Draw hue canvas (once)
+  useEffect(() => {
+    const canvas = hueRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    const grad = ctx.createLinearGradient(0, 0, 200, 0)
+    for (let i = 0; i <= 12; i++) grad.addColorStop(i/12, `hsl(${i*30},100%,50%)`)
+    ctx.fillStyle = grad
+    ctx.fillRect(0, 0, 200, 14)
+  }, [])
+
+  const emitChange = useCallback((h, s, v) => {
+    const rgb = hsvToRgb(h, s, v)
+    const hex = rgbToHex(rgb.r, rgb.g, rgb.b)
+    setHexInput(hex.replace('#','').toUpperCase())
+    onChange(hex)
+  }, [onChange])
+
+  const handleSVDown = useCallback((e) => {
+    dragging.current = 'sv'
+    const update = (ev) => {
+      const rect = svRef.current?.getBoundingClientRect()
+      if (!rect) return
+      const x = Math.max(0, Math.min(200, ev.clientX - rect.left))
+      const y = Math.max(0, Math.min(150, ev.clientY - rect.top))
+      const newS = Math.round((x / 200) * 100)
+      const newV = Math.round((1 - y / 150) * 100)
+      setHsv(prev => { emitChange(prev.h, newS, newV); return { ...prev, s: newS, v: newV } })
+    }
+    update(e.nativeEvent ?? e)
+    const onMove = ev => { if (dragging.current === 'sv') update(ev) }
+    const onUp = () => { dragging.current = null; document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp) }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  }, [emitChange])
+
+  const handleHueDown = useCallback((e) => {
+    dragging.current = 'hue'
+    const update = (ev) => {
+      const rect = hueRef.current?.getBoundingClientRect()
+      if (!rect) return
+      const x = Math.max(0, Math.min(200, ev.clientX - rect.left))
+      const newH = Math.round((x / 200) * 360)
+      setHsv(prev => { emitChange(newH, prev.s, prev.v); return { ...prev, h: newH } })
+    }
+    update(e.nativeEvent ?? e)
+    const onMove = ev => { if (dragging.current === 'hue') update(ev) }
+    const onUp = () => { dragging.current = null; document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp) }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  }, [emitChange])
+
+  const rgb = hsvToRgb(hsv.h, hsv.s, hsv.v)
+  const currentHex = rgbToHex(rgb.r, rgb.g, rgb.b)
+  const svCursorX = Math.round((hsv.s / 100) * 200)
+  const svCursorY = Math.round((1 - hsv.v / 100) * 150)
+  const hueCursorX = Math.round((hsv.h / 360) * 200)
+
+  return (
+    <div>
+      {/* Saturation–Value box */}
+      <div className="cp-sv-wrapper" onMouseDown={handleSVDown}>
+        <canvas ref={svRef} width={200} height={150} className="cp-sv-canvas" />
+        <div className="cp-sv-cursor" style={{ left: svCursorX, top: svCursorY }} />
+      </div>
+
+      {/* Hue slider */}
+      <div className="cp-hue-wrapper" onMouseDown={handleHueDown}>
+        <canvas ref={hueRef} width={200} height={14} className="cp-hue-canvas" />
+        <div className="cp-hue-cursor" style={{ left: hueCursorX }} />
+      </div>
+
+      {/* Preview + Inputs */}
+      <div className="cp-inputs-row">
+        <div className="cp-preview" style={{ backgroundColor: currentHex }} />
+        <div className="cp-input-group">
+          <input
+            type="text" className="cp-hex-input" value={hexInput} maxLength={6}
+            onChange={e => {
+              setHexInput(e.target.value)
+              if (/^[0-9A-Fa-f]{6}$/.test(e.target.value)) {
+                const hex = '#' + e.target.value
+                const rgb2 = hexToRgb(hex)
+                if (rgb2) { const h2 = rgbToHsv(rgb2.r, rgb2.g, rgb2.b); setHsv(h2); onChange(hex) }
+              }
+            }}
+          />
+          {[['r', rgb.r, 255], ['g', rgb.g, 255], ['b', rgb.b, 255]].map(([ch, val, max]) => (
+            <input key={ch} type="number" className="cp-num-input" min={0} max={max} value={val}
+              onChange={e => {
+                const n = Number(e.target.value)
+                const nr = ch==='r'?n:rgb.r, ng=ch==='g'?n:rgb.g, nb=ch==='b'?n:rgb.b
+                const hex = rgbToHex(nr, ng, nb)
+                const h2 = rgbToHsv(nr, ng, nb)
+                setHsv(h2); setHexInput(hex.replace('#','').toUpperCase()); onChange(hex)
+              }}
+            />
+          ))}
+          <input type="number" className="cp-num-input" min={0} max={100} value={alpha}
+            onChange={e => setAlpha(Number(e.target.value))}
+          />
+        </div>
+      </div>
+
+      {/* Labels */}
+      <div className="cp-input-labels">
+        <span>Hex</span><span>R</span><span>G</span><span>B</span><span>A</span>
+      </div>
+
+      {/* Preset swatches */}
+      <div className="chart-settings-swatches">
+        {presets.map(p => (
+          <button key={p} aria-label={`Select color ${p}`}
+            className={`chart-color-swatch${color.toLowerCase()===p.toLowerCase()?' active':''}`}
+            style={{ backgroundColor: p }}
+            onClick={() => {
+              const rgb2 = hexToRgb(p)
+              if (rgb2) { setHsv(rgbToHsv(rgb2.r, rgb2.g, rgb2.b)); setHexInput(p.replace('#','').toUpperCase()); onChange(p) }
+            }}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // Mini Chart Component for "Many Charts" view
 function MiniChart({ chart, isSelected, barColor, onClick }) {
   const svgRef = useRef(null)
-  const [dimensions] = useState({ width: 340, height: 220 })
+  const [dimensions] = useState({ width: 340, height: 240 })
 
   useEffect(() => {
     if (!svgRef.current) return
@@ -31,9 +231,12 @@ function MiniChart({ chart, isSelected, barColor, onClick }) {
     const svg = d3.select(svgRef.current)
     svg.selectAll('*').remove()
 
-    const margin = { top: 45, right: 55, bottom: 30, left: 15 }
+    const margin = { top: 58, right: 50, bottom: 26, left: 12 }
     const width = dimensions.width - margin.left - margin.right
     const height = dimensions.height - margin.top - margin.bottom
+
+    // Show last 9 data points for wider, readable bars
+    const chartData = chart.data.slice(-9)
 
     const g = svg
       .attr('width', dimensions.width)
@@ -43,56 +246,76 @@ function MiniChart({ chart, isSelected, barColor, onClick }) {
 
     const xScale = d3
       .scaleBand()
-      .domain(chart.data.map(d => d.year.toString()))
+      .domain(chartData.map(d => d.year.toString()))
       .range([0, width])
-      .padding(0.35)
+      .padding(0.32)
 
+    const maxVal = Math.max(...chartData.map(d => d.value))
     const yScale = d3
       .scaleLinear()
-      .domain([0, Math.max(...chart.data.map(d => d.value)) * 1.35])
+      .domain([0, maxVal * 1.4])
       .range([height, 0])
 
+    // Horizontal grid lines
+    yScale.ticks(5).forEach(tick => {
+      g.append('line')
+        .attr('x1', 0).attr('x2', width)
+        .attr('y1', yScale(tick)).attr('y2', yScale(tick))
+        .attr('stroke', '#f3f4f6')
+        .attr('stroke-width', 1)
+    })
+
     // Find future start
-    const futureStartIndex = chart.data.findIndex(d => d.isFuture)
+    const futureStartIndex = chartData.findIndex(d => d.isFuture)
     if (futureStartIndex > 0) {
-      const futureStartX = xScale(chart.data[futureStartIndex].year.toString()) || 0
+      const futureStartX = xScale(chartData[futureStartIndex].year.toString()) || 0
 
       // Past label
       g.append('text')
         .attr('x', futureStartX - xScale.bandwidth() * 0.5)
-        .attr('y', -20)
+        .attr('y', -22)
         .attr('text-anchor', 'end')
         .attr('fill', '#9ca3af')
-        .attr('font-size', '10px')
+        .attr('font-size', '9px')
         .text('Past')
 
-      // Future box
+      // Future shaded box
       const futureBoxX = futureStartX - xScale.bandwidth() * 0.2
-      const futureBoxWidth = width - futureBoxX + 8
+      const futureBoxWidth = width - futureBoxX + 6
 
       g.append('rect')
         .attr('x', futureBoxX)
-        .attr('y', -30)
+        .attr('y', -32)
         .attr('width', futureBoxWidth)
-        .attr('height', height + 30)
-        .attr('fill', 'none')
+        .attr('height', height + 32)
+        .attr('fill', 'rgba(34,197,94,0.05)')
         .attr('stroke', '#22c55e')
         .attr('stroke-width', 1.5)
         .attr('rx', 3)
 
       // Future label
       g.append('text')
-        .attr('x', futureBoxX + 8)
-        .attr('y', -15)
+        .attr('x', futureBoxX + 7)
+        .attr('y', -18)
         .attr('fill', '#22c55e')
-        .attr('font-size', '10px')
+        .attr('font-size', '9px')
         .text('Future')
+    } else if (futureStartIndex === 0) {
+      // All data is future
+      g.append('rect')
+        .attr('x', -4).attr('y', -32)
+        .attr('width', width + 10).attr('height', height + 32)
+        .attr('fill', 'rgba(34,197,94,0.05)')
+        .attr('stroke', '#22c55e').attr('stroke-width', 1.5).attr('rx', 3)
+      g.append('text')
+        .attr('x', 4).attr('y', -18)
+        .attr('fill', '#22c55e').attr('font-size', '9px').text('Future')
     }
 
     // Bars
     const pastColor = d3.color(barColor)?.brighter(0.7)?.toString() || barColor
     g.selectAll('.bar')
-      .data(chart.data)
+      .data(chartData)
       .enter()
       .append('rect')
       .attr('class', 'bar')
@@ -100,37 +323,56 @@ function MiniChart({ chart, isSelected, barColor, onClick }) {
       .attr('width', xScale.bandwidth())
       .attr('y', d => yScale(d.value))
       .attr('height', d => height - yScale(d.value))
-      .attr('rx', 3)
+      .attr('rx', 2)
       .attr('fill', d => (d.isFuture ? barColor : pastColor))
 
-    // Value labels for last point
-    const lastDataPoint = chart.data[chart.data.length - 1]
-    g.append('text')
-      .attr('x', (xScale(lastDataPoint.year.toString()) || 0) + xScale.bandwidth() / 2)
-      .attr('y', yScale(lastDataPoint.value) - 20)
-      .attr('text-anchor', 'middle')
-      .attr('fill', '#1f2937')
-      .attr('font-size', '11px')
-      .attr('font-weight', '600')
-      .text(`$${lastDataPoint.value}${chart.unit}`)
+    // Value + change labels above every bar (horizontal)
+    chartData.forEach(d => {
+      const bx = (xScale(d.year.toString()) || 0) + xScale.bandwidth() / 2
+      const by = yScale(d.value)
 
-    g.append('text')
-      .attr('x', (xScale(lastDataPoint.year.toString()) || 0) + xScale.bandwidth() / 2)
-      .attr('y', yScale(lastDataPoint.value) - 7)
-      .attr('text-anchor', 'middle')
-      .attr('fill', lastDataPoint.change >= 0 ? '#22c55e' : '#ef4444')
-      .attr('font-size', '10px')
-      .text(`${lastDataPoint.change >= 0 ? '+' : ''}${lastDataPoint.change}%`)
+      g.append('text')
+        .attr('x', bx)
+        .attr('y', by - 12)
+        .attr('text-anchor', 'middle')
+        .attr('fill', '#1f2937')
+        .attr('font-size', '7.5px')
+        .attr('font-weight', '700')
+        .text(chart.unit === '' ? `$${d.value}` : `$${d.value}${chart.unit}`)
+
+      g.append('text')
+        .attr('x', bx)
+        .attr('y', by - 3)
+        .attr('text-anchor', 'middle')
+        .attr('fill', d.change >= 0 ? '#22c55e' : '#ef4444')
+        .attr('font-size', '6.5px')
+        .text(`${d.change >= 0 ? '+' : ''}${d.change}%`)
+    })
 
     // X Axis
     const xAxis = g.append('g').attr('transform', `translate(0,${height})`).call(d3.axisBottom(xScale))
-    xAxis.selectAll('text').attr('fill', '#9ca3af').attr('font-size', '9px')
+    xAxis.selectAll('text').attr('fill', '#9ca3af').attr('font-size', '8.5px')
     xAxis.selectAll('line').remove()
     xAxis.select('.domain').remove()
 
-    // Y Axis indicator badge
+    // Right Y-axis
+    const yAxisRight = d3.axisRight(yScale)
+      .ticks(5)
+      .tickFormat(d => `${d}${chart.unit}`)
+      .tickSize(0)
+    const rightAxis = g.append('g')
+      .attr('transform', `translate(${width}, 0)`)
+      .call(yAxisRight)
+    rightAxis.selectAll('text')
+      .attr('fill', '#9ca3af')
+      .attr('font-size', '8px')
+      .attr('dx', '5px')
+    rightAxis.select('.domain').remove()
+
+    // Colored badge at last bar level
+    const lastDataPoint = chartData[chartData.length - 1]
     g.append('rect')
-      .attr('x', width + 8)
+      .attr('x', width + 6)
       .attr('y', yScale(lastDataPoint.value) - 10)
       .attr('width', 40)
       .attr('height', 20)
@@ -138,12 +380,12 @@ function MiniChart({ chart, isSelected, barColor, onClick }) {
       .attr('rx', 3)
 
     g.append('text')
-      .attr('x', width + 28)
+      .attr('x', width + 26)
       .attr('y', yScale(lastDataPoint.value) + 4)
       .attr('text-anchor', 'middle')
       .attr('fill', 'white')
-      .attr('font-size', '9px')
-      .attr('font-weight', '600')
+      .attr('font-size', '8.5px')
+      .attr('font-weight', '700')
       .text(`${lastDataPoint.value}${chart.unit}`)
   }, [chart, dimensions, barColor])
 
@@ -155,10 +397,10 @@ function MiniChart({ chart, isSelected, barColor, onClick }) {
       }`}
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-4 pt-3 pb-1">
+      <div className="flex items-center justify-between px-3 pt-2.5 pb-0.5">
         <div className="flex items-center gap-2">
           {/* Microsoft Logo */}
-          <div className="w-6 h-6 grid grid-cols-2 gap-px">
+          <div className="w-5 h-5 grid grid-cols-2 gap-px">
             <div className="bg-[#f25022] rounded-sm" />
             <div className="bg-[#7fba00] rounded-sm" />
             <div className="bg-[#00a4ef] rounded-sm" />
@@ -167,26 +409,26 @@ function MiniChart({ chart, isSelected, barColor, onClick }) {
           <span className="font-semibold text-gray-900 text-sm">{chart.title}</span>
         </div>
         <div className="flex items-center gap-1">
-          <button className="p-1.5 rounded bg-green-500 text-white" onClick={(e) => { e.stopPropagation(); toast('Already in bar chart view'); }}>
-            <BarChart3 className="w-3.5 h-3.5" />
+          <button className="p-1 rounded bg-green-500 text-white" onClick={(e) => { e.stopPropagation(); toast('Already in bar chart view'); }}>
+            <BarChart3 className="w-3 h-3" />
           </button>
-          <button className="p-1.5 rounded text-gray-400 hover:bg-gray-100" onClick={(e) => { e.stopPropagation(); toast('Table toggle coming soon'); }}>
-            <Table className="w-3.5 h-3.5" />
+          <button className="p-1 rounded text-gray-400 hover:bg-gray-100" onClick={(e) => { e.stopPropagation(); toast('Table toggle coming soon'); }}>
+            <Table className="w-3 h-3" />
           </button>
-          <button className="p-1.5 rounded text-gray-400 hover:bg-gray-100" onClick={(e) => { e.stopPropagation(); toast('Download feature coming soon'); }}>
-            <CloudDownload className="w-3.5 h-3.5" />
+          <button className="p-1 rounded text-gray-400 hover:bg-gray-100" onClick={(e) => { e.stopPropagation(); toast('Download feature coming soon'); }}>
+            <CloudDownload className="w-3 h-3" />
           </button>
-          <button className="p-1.5 rounded text-gray-400 hover:bg-gray-100" onClick={(e) => { e.stopPropagation(); toast('More options coming soon'); }}>
-            <MoreVertical className="w-3.5 h-3.5" />
+          <button className="p-1 rounded text-gray-400 hover:bg-gray-100" onClick={(e) => { e.stopPropagation(); toast('More options coming soon'); }}>
+            <MoreVertical className="w-3 h-3" />
           </button>
         </div>
       </div>
 
       {/* Subtitle */}
-      <p className="px-4 text-xs text-gray-500 mb-1">{chart.subtitle}</p>
+      <p className="px-3 text-xs text-gray-500 mb-0.5">{chart.subtitle}</p>
 
       {/* Chart */}
-      <svg ref={svgRef} />
+      <svg ref={svgRef} viewBox={`0 0 ${dimensions.width} ${dimensions.height}`} style={{ width: '100%', height: 'auto', display: 'block' }} />
     </div>
   )
 }
@@ -227,6 +469,8 @@ function TableView({ data, selectedMetric }) {
   )
 }
 
+const CHART_MARGIN = { top: 60, right: 80, bottom: 60, left: 50 }
+
 export default function EBITDAChart() {
   const svgRef = useRef(null)
   const containerRef = useRef(null)
@@ -243,7 +487,15 @@ export default function EBITDAChart() {
   const [isMetricDropdownOpen, setIsMetricDropdownOpen] = useState(false)
   const [activeTab, setActiveTab] = useState('analysis')
   const [activeView, setActiveView] = useState('bars')
+  const [isVisible, setIsVisible] = useState(false)
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [isColorPickerVisible, setIsColorPickerVisible] = useState(false)
+  const settingsRef = useRef(null)
   const playIntervalRef = useRef(null)
+  const xScaleRef = useRef(null)
+  const yScaleRef = useRef(null)
+  const barColorRef = useRef(barColor)
+  barColorRef.current = barColor
 
   // Color picker state
   const [customHex, setCustomHex] = useState('22c55e')
@@ -280,6 +532,32 @@ export default function EBITDAChart() {
     return () => window.removeEventListener('resize', handleResize)
   }, [])
 
+  // Trigger entrance animation after first paint
+  useEffect(() => {
+    if (dimensions.width > 0 && !isVisible) {
+      const t = setTimeout(() => setIsVisible(true), 150)
+      return () => clearTimeout(t)
+    }
+  }, [dimensions.width, isVisible])
+
+  // Reset visibility on metric change so bars re-animate
+  useEffect(() => {
+    setIsVisible(false)
+  }, [selectedMetric.id])
+
+  // Close settings on outside click
+  useEffect(() => {
+    if (!isSettingsOpen) return
+    const handler = (e) => {
+      if (settingsRef.current && !settingsRef.current.contains(e.target)) {
+        setIsSettingsOpen(false)
+        setIsColorPickerVisible(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [isSettingsOpen])
+
   // Play animation
   useEffect(() => {
     if (isPlaying) {
@@ -306,8 +584,9 @@ export default function EBITDAChart() {
     if (!svgRef.current) return
 
     const svg = d3.select(svgRef.current)
-    
-    const margin = { top: 60, right: 80, bottom: 60, left: 50 }
+    const barColor = barColorRef.current
+
+    const margin = CHART_MARGIN
     const width = dimensions.width - margin.left - margin.right
     const height = dimensions.height - margin.top - margin.bottom
 
@@ -347,37 +626,33 @@ export default function EBITDAChart() {
       .domain([0, maxValue * 1.15])
       .range([height, 0])
 
+    xScaleRef.current = xScale
+    yScaleRef.current = yScale
+
     // Find the dividing line between past and future
     const futureStartIndex = chartData.findIndex(d => d.isFuture)
     const futureStartX = futureStartIndex >= 0 ? (xScale(chartData[futureStartIndex].year.toString()) || 0) : width
 
-    // Grid lines
+    // Square-box grid: horizontal lines at Y ticks + vertical lines through bar centers
     if (showGrid) {
-      const yAxisGrid = d3.axisRight(yScale)
-        .tickSize(width)
-        .tickFormat(() => '')
-        .ticks(6)
-
-      gridGroup.call(yAxisGrid)
-        .selectAll('line')
-        .attr('stroke', '#e5e7eb')
-        .attr('stroke-dasharray', '3,3')
-
-      gridGroup.select('.domain').remove()
-      
-      // Horizontal baseline dotted line from the last "Past" value
-      if (futureStartIndex > 0 && !isPlaying) {
-        const baselineValue = chartData[futureStartIndex - 1].value
-        const baselineY = yScale(baselineValue)
+      // Horizontal lines at each Y-axis tick
+      yScale.ticks(6).forEach(tick => {
+        const ty = yScale(tick)
         gridGroup.append('line')
-          .attr('x1', 0)
-          .attr('x2', width)
-          .attr('y1', baselineY)
-          .attr('y2', baselineY)
-          .attr('stroke', '#9ca3af')
-          .attr('stroke-dasharray', '4,4')
-      }
+          .attr('x1', 0).attr('x2', width)
+          .attr('y1', ty).attr('y2', ty)
+          .attr('stroke', '#e5e7eb').attr('stroke-width', 1)
+      })
+      // Vertical lines through each bar center
+      chartData.forEach(d => {
+        const bx = (xScale(d.year.toString()) || 0) + xScale.bandwidth() / 2
+        gridGroup.append('line')
+          .attr('x1', bx).attr('x2', bx)
+          .attr('y1', 0).attr('y2', height)
+          .attr('stroke', '#e5e7eb').attr('stroke-width', 1)
+      })
     }
+
 
     // Future box & Shading
     if (futureStartIndex >= 0) {
@@ -452,53 +727,51 @@ export default function EBITDAChart() {
       }
     }
 
-    // Calculate colors
-    const futureColor = barColor
-    const pastColor = d3.color(barColor)?.brighter(0.5)?.toString() || barColor
-    const highlightColor = d3.color(barColor)?.darker(0.2)?.toString() || barColor
+    // Value-based gradient: small bars = light, large bars = user's chosen color
+    const sortedByValue = [...chartData].sort((a, b) => a.value - b.value)
+    const rankMap = new Map(sortedByValue.map((d, i) => [d.year, i]))
+    const lightColor = d3.interpolateRgb(barColor, '#ffffff')(0.65)
+    const highlightColor = d3.color(barColor)?.darker(0.4)?.toString() || barColor
+    const getBarColor = (d) => {
+      const rank = rankMap.get(d.year) ?? 0
+      const t = rank / Math.max(chartData.length - 1, 1)
+      return d3.interpolateRgb(lightColor, barColor)(t)
+    }
 
-    // Bars with conditional smooth transitions (.join)
-    const barsData = barsGroup.selectAll('.bar')
+    // Data join — new bars enter at scaleY(0) for entrance animation
+    const barsJoin = barsGroup.selectAll('.bar')
       .data(chartData, d => d.year)
 
-    const barsEnter = barsData.enter()
+    barsJoin.enter()
       .append('rect')
       .attr('class', 'bar')
       .attr('x', d => xScale(d.year.toString()) || 0)
       .attr('width', xScale.bandwidth())
-      .attr('y', height)
-      .attr('height', 0)
+      .attr('y', d => yScale(d.value))
+      .attr('height', d => height - yScale(d.value))
       .attr('rx', 4)
       .style('cursor', 'pointer')
+      .style('transform', 'scaleY(0)')
+      .style('transform-origin', '50% 100%')
+      .attr('fill', d => getBarColor(d))
 
-    const barsUpdate = barsEnter.merge(barsData)
-      
-    // Apply position and heights
-    const t = barsUpdate.transition().duration(600)
-    
-    t.attr('x', d => xScale(d.year.toString()) || 0)
-     .attr('width', xScale.bandwidth())
-     .attr('y', d => yScale(d.value))
-     .attr('height', d => height - yScale(d.value))
+    // Update existing bar positions (e.g. on resize)
+    const barsUpdate = barsGroup.selectAll('.bar')
+    barsUpdate
+      .attr('x', d => xScale(d.year.toString()) || 0)
+      .attr('width', xScale.bandwidth())
+      .attr('y', d => yScale(d.value))
+      .attr('height', d => height - yScale(d.value))
 
-    // Apply colors (instant if playing, otherwise transition)
+    // Play highlight color
     if (isPlaying) {
       barsUpdate.attr('fill', (d, i) => {
         if (highlightedIndex === i) return highlightColor
-        return d.isFuture ? futureColor : pastColor
-      })
-    } else {
-      t.attr('fill', (d, i) => {
-        return d.isFuture ? futureColor : pastColor
+        return getBarColor(d)
       })
     }
 
-    barsData.exit()
-      .transition()
-      .duration(400)
-      .attr('y', height)
-      .attr('height', 0)
-      .remove()
+    barsJoin.exit().remove()
 
     // X Axis
     const xAxis = axisGroup.append('g')
@@ -569,53 +842,67 @@ export default function EBITDAChart() {
       
     changeLabels.exit().remove()
 
-    // Highlight indicator (current value line when playing)
-    if (highlightedIndex !== null && isPlaying) {
-      const highlightedData = chartData[highlightedIndex]
-      const barX = xScale(highlightedData.year.toString()) || 0
-      const barCenter = barX + xScale.bandwidth() / 2
 
-      labelsGroup.append('line')
-        .attr('x1', barCenter)
-        .attr('x2', barCenter)
-        .attr('y1', 0)
-        .attr('y2', height)
-        .attr('stroke', '#9ca3af')
-        .attr('stroke-dasharray', '4,4')
-
-      labelsGroup.append('line')
-        .attr('x1', 0)
-        .attr('x2', width + 50)
-        .attr('y1', yScale(highlightedData.value))
-        .attr('y2', yScale(highlightedData.value))
-        .attr('stroke', '#9ca3af')
-        .attr('stroke-dasharray', '4,4')
+    // Transparent overlay rect for mouse tracking
+    let overlayRect = g.select('.mouse-overlay')
+    if (overlayRect.empty()) {
+      overlayRect = g.append('rect').attr('class', 'mouse-overlay')
     }
+    overlayRect
+      .attr('x', 0).attr('y', 0)
+      .attr('width', width).attr('height', height)
+      .attr('fill', 'transparent')
+      .style('cursor', 'default')
+      .on('mousemove', function(event) {
+        const [mx, my] = d3.pointer(event, this)
+        const nearest = chartData.reduce((prev, curr) => {
+          const px = (xScale(prev.year.toString()) || 0) + xScale.bandwidth() / 2
+          const cx = (xScale(curr.year.toString()) || 0) + xScale.bandwidth() / 2
+          return Math.abs(cx - mx) < Math.abs(px - mx) ? curr : prev
+        })
+        const cursorValue = yScale.invert(my)
+        setTooltipData({
+          x: mx + margin.left,
+          y: my + margin.top,
+          svgX: mx, svgY: my,
+          cursorValue,
+          data: nearest
+        })
+      })
+      .on('mouseleave', function() {
+        setTooltipData(null)
+      })
 
-    // Bar hover interactions
-    barsUpdate.on('mouseenter', function(event, d) {
-      d3.select(this)
-        .transition()
-        .duration(150)
-        .attr('fill', highlightColor)
+  }, [dimensions, chartData, showLabels, showPercentChanges, showGrid, highlightedIndex, isPlaying, showTooltip])
 
-      if (showTooltip) {
-        const barX = (xScale(d.year.toString()) || 0) + xScale.bandwidth() / 2 + margin.left
-        const barY = yScale(d.value) + margin.top - 10
-        setTooltipData({ x: barX, y: barY, data: d })
-      }
-    })
+  // Entrance animation: grow small bars first → large bars last (color set by D3 render)
+  useEffect(() => {
+    if (!isVisible || !svgRef.current) return
+    const sortedByValue = [...chartData].sort((a, b) => a.value - b.value)
+    const rankMap = new Map(sortedByValue.map((d, i) => [d.year, i]))
+    d3.select(svgRef.current).selectAll('.bar')
+      .each(function(d) {
+        const rank = rankMap.get(d.year) ?? 0
+        d3.select(this)
+          .style('transition', `transform 0.55s cubic-bezier(0.22,1,0.36,1) ${rank * 55}ms`)
+          .style('transform', 'scaleY(1)')
+      })
+  }, [isVisible, chartData])
 
-    barsUpdate.on('mouseleave', function(event, d) {
-      d3.select(this)
-        .transition()
-        .duration(150)
-        .attr('fill', d.isFuture ? futureColor : pastColor)
-
-      setTooltipData(null)
-    })
-
-  }, [dimensions, chartData, showLabels, showPercentChanges, showGrid, barColor, highlightedIndex, isPlaying, showTooltip])
+  // Smooth gradient update when user changes color in settings
+  useEffect(() => {
+    if (!isVisible || !svgRef.current) return
+    const sortedByValue = [...chartData].sort((a, b) => a.value - b.value)
+    const rankMap = new Map(sortedByValue.map((d, i) => [d.year, i]))
+    const lightColor = d3.interpolateRgb(barColor, '#ffffff')(0.65)
+    d3.select(svgRef.current).selectAll('.bar')
+      .transition().duration(1200).ease(d3.easeCubicInOut)
+      .attr('fill', d => {
+        const rank = rankMap.get(d.year) ?? 0
+        const t = rank / Math.max(chartData.length - 1, 1)
+        return d3.interpolateRgb(lightColor, barColor)(t)
+      })
+  }, [barColor, isVisible])
 
   const handleColorChange = useCallback((color) => {
     setBarColor(color)
@@ -672,8 +959,8 @@ export default function EBITDAChart() {
 
       {/* Many Charts View */}
       {activeTab === 'charts' && (
-        <div className="bg-gray-50 min-h-[calc(100vh-60px)] p-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="bg-gray-50 min-h-[calc(100vh-60px)] p-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {allChartsData.map(chart => (
               <MiniChart
                 key={chart.id}
@@ -731,7 +1018,8 @@ export default function EBITDAChart() {
                           selectedMetric.id === metric.id ? 'bg-gray-50 bg-opacity-80' : ''
                         }`}
                       >
-                        <span className="font-semibold text-gray-900">{metric.label}</span>
+                        <span className="font-semibold text-gray-900 block">{metric.label}</span>
+                        <span className="text-xs text-gray-500">{metric.description}</span>
                       </button>
                     ))}
                   </div>
@@ -741,6 +1029,9 @@ export default function EBITDAChart() {
             
             {/* Subtitle */}
             <p className="text-xl text-gray-700 tracking-tight font-medium">
+              {selectedMetric.description}
+            </p>
+            <p className="text-sm text-gray-500 mt-0.5">
               {selectedMetric.label} Projected To Reach {selectedMetric.projected}
             </p>
           </div>
@@ -783,83 +1074,63 @@ export default function EBITDAChart() {
             
             <div className="hidden md:block w-px h-6 bg-gray-200 mx-1"></div>
 
-            {/* Settings Popover */}
-            <Popover>
-              <PopoverTrigger asChild>
-                <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-semibold text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 shadow-sm transition-all">
-                  <MoreVertical className="w-4 h-4 text-gray-400" />
-                  Settings
-                </button>
-              </PopoverTrigger>
-              <PopoverContent className="w-80 p-0 rounded-xl" align="end">
-                <div className="p-4 space-y-4">
-                  <h3 className="font-semibold text-gray-900">Settings</h3>
-                  
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <label className="text-sm font-medium text-gray-700">Show Labels</label>
-                      <Switch
-                        checked={showLabels}
-                        onCheckedChange={setShowLabels}
-                        className="data-[state=checked]:bg-[#22c55e]"
-                      />
-                    </div>
-                    
-                    <div className="flex items-center justify-between">
-                      <label className="text-sm font-medium text-gray-700">Show % Changes</label>
-                      <Switch
-                        checked={showPercentChanges}
-                        onCheckedChange={setShowPercentChanges}
-                        className="data-[state=checked]:bg-[#22c55e]"
-                      />
-                    </div>
-                    
-                    <div className="flex items-center justify-between">
-                      <label className="text-sm font-medium text-gray-700">Show Tooltip</label>
-                      <Switch
-                        checked={showTooltip}
-                        onCheckedChange={setShowTooltip}
-                        className="data-[state=checked]:bg-[#22c55e]"
-                      />
-                    </div>
-                    
-                    <div className="flex items-center justify-between">
-                      <label className="text-sm font-medium text-gray-700">Grid</label>
-                      <Switch
-                        checked={showGrid}
-                        onCheckedChange={setShowGrid}
-                        className="data-[state=checked]:bg-[#22c55e]"
-                      />
-                    </div>
-                  </div>
+            {/* Settings — custom floating panel */}
+            <div ref={settingsRef} className="relative">
+              <button
+                onClick={() => { setIsSettingsOpen(o => !o); setIsColorPickerVisible(false) }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-semibold text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 shadow-sm transition-all"
+              >
+                <MoreVertical className="w-4 h-4 text-gray-400" />
+                Settings
+              </button>
 
-                  {/* Color Picker */}
-                  <div className="pt-3 border-t border-gray-100">
-                    <div className="flex items-center gap-2 mb-3">
-                      <div
-                        className="w-5 h-5 rounded-full border border-gray-300 shadow-sm"
+              {isSettingsOpen && (
+                <div className="absolute top-full right-0 mt-2 z-50 flex shadow-2xl rounded-xl overflow-hidden bg-white border border-gray-200">
+                  {/* Color picker panel — shown left when Color is toggled */}
+                  {isColorPickerVisible && (
+                    <div className="p-4 border-r border-gray-100">
+                      <ColorPicker color={barColor} onChange={handleColorChange} presets={colorPresets} />
+                    </div>
+                  )}
+
+                  {/* Settings panel */}
+                  <div className="p-4 min-w-[170px]">
+                    <div className="text-sm font-semibold text-gray-900 mb-3">Settings</div>
+
+                    {[
+                      { label: 'Show Labels',    value: showLabels,        set: setShowLabels },
+                      { label: 'Show % Changes', value: showPercentChanges, set: setShowPercentChanges },
+                      { label: 'Show Tooltip',   value: showTooltip,       set: setShowTooltip },
+                      { label: 'Grid',           value: showGrid,          set: setShowGrid },
+                    ].map(({ label, value, set }) => (
+                      <label key={label} className="chart-settings-toggle">
+                        <input type="checkbox" className="hidden" checked={value} onChange={() => set(v => !v)} readOnly />
+                        <span className="chart-settings-checkbox" style={value ? { background: '#3b82f6', borderColor: '#3b82f6' } : {}}>
+                          {value && (
+                            <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                              <path d="M1.5 5l2.5 2.5 5-5" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+                            </svg>
+                          )}
+                        </span>
+                        {label}
+                      </label>
+                    ))}
+
+                    {/* Color row — toggles color picker */}
+                    <div
+                      className="chart-settings-toggle mt-1 cursor-pointer"
+                      onClick={() => setIsColorPickerVisible(v => !v)}
+                    >
+                      <span
+                        className="chart-settings-color-dot"
                         style={{ backgroundColor: barColor }}
                       />
-                      <span className="text-sm font-medium text-gray-700">Color Variant</span>
-                    </div>
-
-                    {/* Color Presets */}
-                    <div className="flex flex-wrap gap-2">
-                      {colorPresets.map((color) => (
-                        <button
-                          key={color}
-                          onClick={() => handleColorChange(color)}
-                          className={`w-8 h-8 rounded-full border-2 transition-transform shadow-sm ${
-                            barColor === color ? 'border-gray-900 scale-110 shadow-md' : 'border-transparent'
-                          }`}
-                          style={{ backgroundColor: color }}
-                        />
-                      ))}
+                      Color
                     </div>
                   </div>
                 </div>
-              </PopoverContent>
-            </Popover>
+              )}
+            </div>
           </div>
         </div>
 
@@ -917,18 +1188,40 @@ export default function EBITDAChart() {
           </div>
 
           {activeView === 'bars' ? (
-            <div ref={containerRef} className="w-full overflow-x-auto min-h-[500px]">
+            <div ref={containerRef} className="w-full overflow-x-auto min-h-[500px] relative">
               <svg ref={svgRef} className="w-full min-w-[800px]" />
-              
+
+              {/* Crosshair overlay */}
+              {tooltipData && showTooltip && (() => {
+                const cw = dimensions.width - CHART_MARGIN.left - CHART_MARGIN.right
+                const ch = dimensions.height - CHART_MARGIN.top - CHART_MARGIN.bottom
+                const yVal = tooltipData.cursorValue
+                const label = selectedMetric.id === 'eps_diluted' || selectedMetric.id === 'eps_basic'
+                  ? `$${yVal?.toFixed(1)}` : `$${yVal?.toFixed(0)}B`
+                return (
+                  <svg
+                    style={{ position: 'absolute', top: 0, left: 0, pointerEvents: 'none', overflow: 'visible' }}
+                    width={dimensions.width} height={dimensions.height}
+                  >
+                    <g transform={`translate(${CHART_MARGIN.left},${CHART_MARGIN.top})`}>
+                      <line x1={tooltipData.svgX} y1={0} x2={tooltipData.svgX} y2={ch} stroke="#9ca3af" strokeDasharray="5,4" strokeWidth={1} />
+                      <line x1={0} y1={tooltipData.svgY} x2={cw} y2={tooltipData.svgY} stroke="#9ca3af" strokeDasharray="5,4" strokeWidth={1} />
+                      <rect x={cw + 2} y={tooltipData.svgY - 10} width={52} height={20} rx={4} fill="#6b7280" />
+                      <text x={cw + 28} y={tooltipData.svgY + 4} textAnchor="middle" fill="white" fontSize="10px" fontWeight="600">{label}</text>
+                    </g>
+                  </svg>
+                )
+              })()}
+
               {/* Custom Tooltip */}
               {tooltipData && showTooltip && (
                 <div
-                  className="absolute bg-white border border-gray-200 rounded-lg shadow-xl p-4 pointer-events-none z-50 text-xs min-w-[180px]"
+                  className="absolute bg-white border border-gray-200 rounded-lg shadow-xl p-3 pointer-events-none z-50 text-xs min-w-[190px]"
                   style={{
-                    left: tooltipData.x,
-                    top: Math.max(tooltipData.y - 100, 20),
-                    transform: 'translate(-50%, -10px)',
-                    transition: 'left 0.1s ease-out, top 0.1s ease-out'
+                    left: Math.min(tooltipData.x, dimensions.width - 110),
+                    top: Math.max(tooltipData.y - 120, 8),
+                    transform: 'translate(-50%, 0)',
+                    transition: 'left 0.08s ease-out, top 0.08s ease-out'
                   }}
                 >
                   <div className="space-y-2">
@@ -974,12 +1267,18 @@ export default function EBITDAChart() {
               <div className="text-[10px] font-bold tracking-wider text-gray-400 mb-0.5">BACK</div>
               <div className="font-bold text-gray-900 text-lg leading-tight">
                 {metricOptions[
-                  metricOptions.findIndex(m => m.id === selectedMetric.id) > 0 
-                    ? metricOptions.findIndex(m => m.id === selectedMetric.id) - 1 
+                  metricOptions.findIndex(m => m.id === selectedMetric.id) > 0
+                    ? metricOptions.findIndex(m => m.id === selectedMetric.id) - 1
                     : metricOptions.length - 1
                 ].label}
               </div>
-              <div className="text-xs text-gray-500 mt-1">View historical trends</div>
+              <div className="text-xs text-gray-500 mt-1">
+                {metricOptions[
+                  metricOptions.findIndex(m => m.id === selectedMetric.id) > 0
+                    ? metricOptions.findIndex(m => m.id === selectedMetric.id) - 1
+                    : metricOptions.length - 1
+                ].description}
+              </div>
             </div>
           </button>
           
@@ -998,7 +1297,11 @@ export default function EBITDAChart() {
                   (metricOptions.findIndex(m => m.id === selectedMetric.id) + 1) % metricOptions.length
                 ].label}
               </div>
-              <div className="text-xs text-green-100 mt-1">Analyze current performance</div>
+              <div className="text-xs text-green-100 mt-1">
+                {metricOptions[
+                  (metricOptions.findIndex(m => m.id === selectedMetric.id) + 1) % metricOptions.length
+                ].description}
+              </div>
             </div>
             <div className="bg-white/20 p-2 rounded-full group-hover:translate-x-1 transition-transform">
               <ChevronRight className="w-5 h-5 text-white" strokeWidth={2.5} />
