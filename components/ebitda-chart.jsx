@@ -13,6 +13,10 @@ import {
   ChevronRight,
   CloudDownload,
   MoreVertical,
+  TrendingUp,
+  Activity,
+  Sparkles,
+  AlertTriangle,
 } from 'lucide-react'
 
 import { toast } from 'sonner'
@@ -221,7 +225,7 @@ function ColorPicker({ color, onChange, presets }) {
 }
 
 // Mini Chart Component for "Many Charts" view
-function MiniChart({ chart, isSelected, barColor, onClick }) {
+function MiniChart({ chart, barColor, onClick }) {
   const svgRef = useRef(null)
   const [dimensions] = useState({ width: 340, height: 240 })
 
@@ -283,33 +287,42 @@ function MiniChart({ chart, isSelected, barColor, onClick }) {
       const futureBoxX = futureStartX - xScale.bandwidth() * 0.2
       const futureBoxWidth = width - futureBoxX + 6
 
+      const futureBoxFill = (() => { const c = d3.color(barColor); if (c) { c.opacity = 0.07; return c.toString() } return barColor })()
+      // Background fill only (no full border)
       g.append('rect')
         .attr('x', futureBoxX)
         .attr('y', -32)
         .attr('width', futureBoxWidth)
         .attr('height', height + 32)
-        .attr('fill', 'rgba(34,197,94,0.05)')
-        .attr('stroke', '#22c55e')
-        .attr('stroke-width', 1.5)
-        .attr('rx', 3)
+        .attr('fill', futureBoxFill)
+        .attr('stroke', 'none')
+      // Top border only
+      g.append('line')
+        .attr('x1', futureBoxX).attr('x2', futureBoxX + futureBoxWidth)
+        .attr('y1', -32).attr('y2', -32)
+        .attr('stroke', barColor).attr('stroke-width', 1.5)
 
       // Future label
       g.append('text')
         .attr('x', futureBoxX + 7)
         .attr('y', -18)
-        .attr('fill', '#22c55e')
+        .attr('fill', barColor)
         .attr('font-size', '9px')
         .text('Future')
     } else if (futureStartIndex === 0) {
       // All data is future
+      const futureBoxFill = (() => { const c = d3.color(barColor); if (c) { c.opacity = 0.07; return c.toString() } return barColor })()
       g.append('rect')
         .attr('x', -4).attr('y', -32)
         .attr('width', width + 10).attr('height', height + 32)
-        .attr('fill', 'rgba(34,197,94,0.05)')
-        .attr('stroke', '#22c55e').attr('stroke-width', 1.5).attr('rx', 3)
+        .attr('fill', futureBoxFill).attr('stroke', 'none')
+      g.append('line')
+        .attr('x1', -4).attr('x2', width + 6)
+        .attr('y1', -32).attr('y2', -32)
+        .attr('stroke', barColor).attr('stroke-width', 1.5)
       g.append('text')
         .attr('x', 4).attr('y', -18)
-        .attr('fill', '#22c55e').attr('font-size', '9px').text('Future')
+        .attr('fill', barColor).attr('font-size', '9px').text('Future')
     }
 
     // Bars
@@ -392,40 +405,38 @@ function MiniChart({ chart, isSelected, barColor, onClick }) {
   return (
     <div
       onClick={onClick}
-      className={`bg-white rounded-lg border-2 transition-all cursor-pointer hover:shadow-md ${
-        isSelected ? 'border-green-500 shadow-lg ring-2 ring-green-100' : 'border-gray-200 hover:border-gray-300'
-      }`}
+      className="bg-white rounded-2xl cursor-pointer transition-all"
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-3 pt-2.5 pb-0.5">
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between px-4 pt-4 pb-1">
+        <div className="flex items-center gap-2.5">
           {/* Microsoft Logo */}
-          <div className="w-5 h-5 grid grid-cols-2 gap-px">
+          <div className="w-8 h-8 grid grid-cols-2 gap-0.5 flex-shrink-0">
             <div className="bg-[#f25022] rounded-sm" />
             <div className="bg-[#7fba00] rounded-sm" />
             <div className="bg-[#00a4ef] rounded-sm" />
             <div className="bg-[#ffb900] rounded-sm" />
           </div>
-          <span className="font-semibold text-gray-900 text-sm">{chart.title}</span>
+          <span className="font-bold text-gray-900 text-xl leading-tight">{chart.title}</span>
         </div>
-        <div className="flex items-center gap-1">
-          <button className="p-1 rounded bg-green-500 text-white" onClick={(e) => { e.stopPropagation(); toast('Already in bar chart view'); }}>
-            <BarChart3 className="w-3 h-3" />
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          <button className="p-1.5 rounded-lg bg-green-700 text-white" onClick={(e) => { e.stopPropagation(); toast('Already in bar chart view'); }}>
+            <BarChart3 className="w-3.5 h-3.5" />
           </button>
-          <button className="p-1 rounded text-gray-400 hover:bg-gray-100" onClick={(e) => { e.stopPropagation(); toast('Table toggle coming soon'); }}>
-            <Table className="w-3 h-3" />
+          <button className="p-1.5 rounded-lg bg-gray-900 text-white" onClick={(e) => { e.stopPropagation(); toast('Table toggle coming soon'); }}>
+            <Table className="w-3.5 h-3.5" />
           </button>
-          <button className="p-1 rounded text-gray-400 hover:bg-gray-100" onClick={(e) => { e.stopPropagation(); toast('Download feature coming soon'); }}>
-            <CloudDownload className="w-3 h-3" />
+          <button className="p-1.5 rounded-lg bg-gray-900 text-white" onClick={(e) => { e.stopPropagation(); toast('Download feature coming soon'); }}>
+            <CloudDownload className="w-3.5 h-3.5" />
           </button>
-          <button className="p-1 rounded text-gray-400 hover:bg-gray-100" onClick={(e) => { e.stopPropagation(); toast('More options coming soon'); }}>
-            <MoreVertical className="w-3 h-3" />
+          <button className="p-1.5 rounded-lg bg-gray-900 text-white" onClick={(e) => { e.stopPropagation(); toast('More options coming soon'); }}>
+            <MoreVertical className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
 
       {/* Subtitle */}
-      <p className="px-3 text-xs text-gray-500 mb-0.5">{chart.subtitle}</p>
+      <p className="px-4 text-xs text-gray-500 mb-1">{chart.subtitle}</p>
 
       {/* Chart */}
       <svg ref={svgRef} viewBox={`0 0 ${dimensions.width} ${dimensions.height}`} style={{ width: '100%', height: 'auto', display: 'block' }} />
@@ -481,7 +492,6 @@ export default function EBITDAChart() {
   const [showGrid, setShowGrid] = useState(true)
   const [barColor, setBarColor] = useState('#22c55e')
   const [isPlaying, setIsPlaying] = useState(false)
-  const [highlightedIndex, setHighlightedIndex] = useState(null)
   const [tooltipData, setTooltipData] = useState(null)
   const [selectedMetric, setSelectedMetric] = useState(metricOptions[0])
   const [isMetricDropdownOpen, setIsMetricDropdownOpen] = useState(false)
@@ -491,21 +501,16 @@ export default function EBITDAChart() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [isColorPickerVisible, setIsColorPickerVisible] = useState(false)
   const settingsRef = useRef(null)
-  const playIntervalRef = useRef(null)
+  const playTimeoutsRef = useRef([])
   const xScaleRef = useRef(null)
   const yScaleRef = useRef(null)
   const barColorRef = useRef(barColor)
   barColorRef.current = barColor
 
-  // Color picker state
-  const [customHex, setCustomHex] = useState('22c55e')
-  const [customR, setCustomR] = useState(34)
-  const [customG, setCustomG] = useState(197)
-  const [customB, setCustomB] = useState(94)
-  const [customA, setCustomA] = useState(100)
-
   // Dynamic data
-  const chartData = allChartsData.find(c => c.id === selectedMetric.id)?.data || allChartsData[0].data
+  const currentChartMeta = allChartsData.find(c => c.id === selectedMetric.id) || allChartsData[0]
+  const chartData = currentChartMeta.data
+  const chartUnit = currentChartMeta.unit ?? 'B'
 
   // Calculate statistics
   const currentValue = chartData.find(d => d.year === 2024)?.value || chartData[chartData.length - 1].value
@@ -543,6 +548,13 @@ export default function EBITDAChart() {
   // Reset visibility on metric change so bars re-animate
   useEffect(() => {
     setIsVisible(false)
+    if (svgRef.current) {
+      d3.select(svgRef.current).selectAll('.bar')
+        .style('transition', 'none')
+        .style('transform-box', 'fill-box')
+        .style('transform-origin', '50% 100%')
+        .style('transform', 'scaleY(0)')
+    }
   }, [selectedMetric.id])
 
   // Close settings on outside click
@@ -558,26 +570,56 @@ export default function EBITDAChart() {
     return () => document.removeEventListener('mousedown', handler)
   }, [isSettingsOpen])
 
-  // Play animation
+  // Play animation — reveal bars one by one, auto-pause when done
   useEffect(() => {
-    if (isPlaying) {
-      let currentIndex = highlightedIndex ?? -1
-      playIntervalRef.current = setInterval(() => {
-        currentIndex = (currentIndex + 1) % chartData.length
-        setHighlightedIndex(currentIndex)
-      }, 800)
-    } else {
-      if (playIntervalRef.current) {
-        clearInterval(playIntervalRef.current)
-        playIntervalRef.current = null
-      }
+    if (!svgRef.current) return
+
+    if (!isPlaying) {
+      // Cancel any pending timeouts
+      playTimeoutsRef.current.forEach(id => clearTimeout(id))
+      playTimeoutsRef.current = []
+      // Restore all bars to visible in case paused mid-animation
+      d3.select(svgRef.current).selectAll('.bar')
+        .style('transform-box', 'fill-box')
+        .style('transform-origin', '50% 100%')
+        .style('transition', 'transform 0.35s ease-out')
+        .style('transform', 'scaleY(1)')
+      return
     }
+
+    const nodes = d3.select(svgRef.current).selectAll('.bar').nodes()
+    const total = nodes.length
+    const perBarDelay = 250
+    const barDuration = 500
+
+    // Hide all bars instantly before starting
+    nodes.forEach(node => {
+      node.style.transition = 'none'
+      node.style.transformBox = 'fill-box'
+      node.style.transformOrigin = '50% 100%'
+      node.style.transform = 'scaleY(0)'
+    })
+
+    const ids = []
+    nodes.forEach((node, i) => {
+      const t = setTimeout(() => {
+        node.style.transition = `transform ${barDuration}ms cubic-bezier(0.22,1,0.36,1)`
+        node.style.transform = 'scaleY(1)'
+        // After last bar finishes, auto-pause
+        if (i === total - 1) {
+          const autoStop = setTimeout(() => setIsPlaying(false), barDuration)
+          playTimeoutsRef.current.push(autoStop)
+        }
+      }, i * perBarDelay)
+      ids.push(t)
+    })
+    playTimeoutsRef.current = ids
+
     return () => {
-      if (playIntervalRef.current) {
-        clearInterval(playIntervalRef.current)
-      }
+      ids.forEach(id => clearTimeout(id))
+      playTimeoutsRef.current = []
     }
-  }, [isPlaying, highlightedIndex])
+  }, [isPlaying])
 
   // D3 Chart rendering
   useEffect(() => {
@@ -731,7 +773,6 @@ export default function EBITDAChart() {
     const sortedByValue = [...chartData].sort((a, b) => a.value - b.value)
     const rankMap = new Map(sortedByValue.map((d, i) => [d.year, i]))
     const lightColor = d3.interpolateRgb(barColor, '#ffffff')(0.65)
-    const highlightColor = d3.color(barColor)?.darker(0.4)?.toString() || barColor
     const getBarColor = (d) => {
       const rank = rankMap.get(d.year) ?? 0
       const t = rank / Math.max(chartData.length - 1, 1)
@@ -751,8 +792,9 @@ export default function EBITDAChart() {
       .attr('height', d => height - yScale(d.value))
       .attr('rx', 4)
       .style('cursor', 'pointer')
-      .style('transform', 'scaleY(0)')
+      .style('transform-box', 'fill-box')
       .style('transform-origin', '50% 100%')
+      .style('transform', 'scaleY(0)')
       .attr('fill', d => getBarColor(d))
 
     // Update existing bar positions (e.g. on resize)
@@ -762,14 +804,6 @@ export default function EBITDAChart() {
       .attr('width', xScale.bandwidth())
       .attr('y', d => yScale(d.value))
       .attr('height', d => height - yScale(d.value))
-
-    // Play highlight color
-    if (isPlaying) {
-      barsUpdate.attr('fill', (d, i) => {
-        if (highlightedIndex === i) return highlightColor
-        return getBarColor(d)
-      })
-    }
 
     barsJoin.exit().remove()
 
@@ -795,51 +829,42 @@ export default function EBITDAChart() {
         .attr('dy', '0.35em')
         .attr('fill', '#6b7280')
         .attr('font-size', '11px')
-        .text(`$${tick}B`)
+        .text(chartUnit === '' ? `$${(+tick).toFixed(1)}` : `$${(+tick).toFixed(1)}${chartUnit}`)
     })
 
-    // Labels with smooth transitions
+    // Labels (no animation on toggle)
     const valueLabels = labelsGroup.selectAll('.value-label')
       .data(showLabels ? chartData : [], d => d.year)
-      
+
     valueLabels.enter()
       .append('text')
       .attr('class', 'value-label')
-      .attr('x', d => (xScale(d.year.toString()) || 0) + xScale.bandwidth() / 2)
-      .attr('y', height)
       .attr('text-anchor', 'middle')
       .attr('fill', '#111827')
       .attr('font-size', '12px')
       .attr('font-weight', 'bold')
-      .text(d => `$${d.value}B`)
       .merge(valueLabels)
-      .transition()
-      .duration(600)
       .attr('x', d => (xScale(d.year.toString()) || 0) + xScale.bandwidth() / 2)
       .attr('y', d => yScale(d.value) - 22)
-      .text(d => `$${d.value}B`)
-      
+      .text(d => chartUnit === '' ? `$${d.value}` : `$${d.value}${chartUnit}`)
+
     valueLabels.exit().remove()
 
     const changeLabels = labelsGroup.selectAll('.change-label')
       .data(showPercentChanges ? chartData : [], d => d.year)
-      
+
     changeLabels.enter()
       .append('text')
       .attr('class', 'change-label')
-      .attr('x', d => (xScale(d.year.toString()) || 0) + xScale.bandwidth() / 2)
-      .attr('y', height)
       .attr('text-anchor', 'middle')
       .attr('font-size', '11px')
       .attr('font-weight', 'bold')
       .merge(changeLabels)
-      .transition()
-      .duration(600)
       .attr('x', d => (xScale(d.year.toString()) || 0) + xScale.bandwidth() / 2)
       .attr('y', d => yScale(d.value) - 6)
       .attr('fill', d => d.change >= 0 ? barColor : '#ef4444')
       .text(d => `${d.change >= 0 ? '+' : ''}${d.change}%`)
-      
+
     changeLabels.exit().remove()
 
 
@@ -873,7 +898,7 @@ export default function EBITDAChart() {
         setTooltipData(null)
       })
 
-  }, [dimensions, chartData, showLabels, showPercentChanges, showGrid, highlightedIndex, isPlaying, showTooltip])
+  }, [dimensions, chartData, chartUnit, showLabels, showPercentChanges, showGrid, isPlaying, showTooltip, activeView, activeTab])
 
   // Entrance animation: grow small bars first → large bars last (color set by D3 render)
   useEffect(() => {
@@ -887,7 +912,7 @@ export default function EBITDAChart() {
           .style('transition', `transform 0.55s cubic-bezier(0.22,1,0.36,1) ${rank * 55}ms`)
           .style('transform', 'scaleY(1)')
       })
-  }, [isVisible, chartData])
+  }, [isVisible, chartData, activeView, activeTab])
 
   // Smooth gradient update when user changes color in settings
   useEffect(() => {
@@ -896,38 +921,21 @@ export default function EBITDAChart() {
     const rankMap = new Map(sortedByValue.map((d, i) => [d.year, i]))
     const lightColor = d3.interpolateRgb(barColor, '#ffffff')(0.65)
     d3.select(svgRef.current).selectAll('.bar')
-      .transition().duration(1200).ease(d3.easeCubicInOut)
-      .attr('fill', d => {
+      .each(function(d, i) {
         const rank = rankMap.get(d.year) ?? 0
         const t = rank / Math.max(chartData.length - 1, 1)
-        return d3.interpolateRgb(lightColor, barColor)(t)
+        const targetColor = d3.interpolateRgb(lightColor, barColor)(t)
+        d3.select(this)
+          .transition()
+          .delay(i * 80)
+          .duration(350)
+          .ease(d3.easeCubicInOut)
+          .attr('fill', targetColor)
       })
   }, [barColor, isVisible])
 
   const handleColorChange = useCallback((color) => {
     setBarColor(color)
-    // Update hex/rgb values
-    const rgb = d3.color(color)
-    if (rgb) {
-      setCustomHex(color.replace('#', ''))
-      setCustomR(rgb.r)
-      setCustomG(rgb.g)
-      setCustomB(rgb.b)
-    }
-  }, [])
-
-  const handleHexChange = useCallback((hex) => {
-    setCustomHex(hex)
-    if (/^[0-9A-Fa-f]{6}$/.test(hex)) {
-      const color = `#${hex}`
-      setBarColor(color)
-      const rgb = d3.color(color)
-      if (rgb) {
-        setCustomR(rgb.r)
-        setCustomG(rgb.g)
-        setCustomB(rgb.b)
-      }
-    }
   }, [])
 
   return (
@@ -937,19 +945,19 @@ export default function EBITDAChart() {
         <button
           onClick={() => setActiveTab('charts')}
           className={`flex items-center gap-2 pb-2 transition-colors relative ${
-            activeTab === 'charts' ? 'text-gray-900 border-b-2 border-pink-500 font-semibold mb-[-1px]' : 'text-gray-500 hover:text-gray-700 font-medium'
+            activeTab === 'charts' ? 'text-gray-900 border-b-2 border-blue-600 font-semibold mb-[-1px]' : 'text-gray-500 hover:text-gray-700 font-medium'
           }`}
         >
-          <BarChart3 className="w-4 h-4" />
+          <BarChart3 className="w-4 h-4 text-blue-500" />
           <span className="text-sm">Many Charts</span>
         </button>
         <button
           onClick={() => setActiveTab('analysis')}
           className={`flex items-center gap-2 pb-2 transition-colors relative ${
-            activeTab === 'analysis' ? 'text-gray-900 border-b-2 border-pink-500 font-semibold mb-[-1px]' : 'text-gray-500 hover:text-gray-700 font-medium'
+            activeTab === 'analysis' ? 'text-gray-900 border-b-2 border-blue-600 font-semibold mb-[-1px]' : 'text-gray-500 hover:text-gray-700 font-medium'
           }`}
         >
-          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg className="w-4 h-4 text-amber-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M3 3v18h18" />
             <path d="M7 12l4-4 4 4 5-5" />
           </svg>
@@ -959,13 +967,12 @@ export default function EBITDAChart() {
 
       {/* Many Charts View */}
       {activeTab === 'charts' && (
-        <div className="bg-gray-50 min-h-[calc(100vh-60px)] p-3">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className="bg-white min-h-[calc(100vh-60px)] px-4 md:px-6 py-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {allChartsData.map(chart => (
               <MiniChart
                 key={chart.id}
                 chart={chart}
-                isSelected={selectedMetric.id === chart.id}
                 barColor={barColor}
                 onClick={() => {
                   const metric = metricOptions.find(m => m.id === chart.id)
@@ -1028,9 +1035,6 @@ export default function EBITDAChart() {
             </div>
             
             {/* Subtitle */}
-            <p className="text-xl text-gray-700 tracking-tight font-medium">
-              {selectedMetric.description}
-            </p>
             <p className="text-sm text-gray-500 mt-0.5">
               {selectedMetric.label} Projected To Reach {selectedMetric.projected}
             </p>
@@ -1105,7 +1109,7 @@ export default function EBITDAChart() {
                     ].map(({ label, value, set }) => (
                       <label key={label} className="chart-settings-toggle">
                         <input type="checkbox" className="hidden" checked={value} onChange={() => set(v => !v)} readOnly />
-                        <span className="chart-settings-checkbox" style={value ? { background: '#3b82f6', borderColor: '#3b82f6' } : {}}>
+                        <span className="chart-settings-checkbox" style={value ? { background: '#22c55e', borderColor: '#22c55e' } : {}}>
                           {value && (
                             <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
                               <path d="M1.5 5l2.5 2.5 5-5" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
@@ -1123,9 +1127,9 @@ export default function EBITDAChart() {
                     >
                       <span
                         className="chart-settings-color-dot"
-                        style={{ backgroundColor: barColor }}
+                        style={{ backgroundColor: barColor, width: 16, height: 16, border: 'none' }}
                       />
-                      Color
+                      <span className="font-bold">Color</span>
                     </div>
                   </div>
                 </div>
@@ -1141,45 +1145,45 @@ export default function EBITDAChart() {
             <div className="space-y-3">
               <div className="flex items-center justify-between pb-2 border-b border-gray-100">
                 <div className="flex items-center gap-2">
-                  <BarChart3 className="w-4 h-4 text-gray-500" />
+                  <BarChart3 className="w-4 h-4 text-blue-500" />
                   <span className="text-xs font-bold text-gray-800 tracking-wide">{selectedMetric.label}</span>
                 </div>
-                <span className="font-bold text-gray-900">${currentValue}B</span>
+                <span className="font-bold text-gray-900">{chartUnit === '' ? `$${currentValue}` : `$${currentValue}${chartUnit}`}</span>
               </div>
-              
+
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm">📅</span>
+                  <TrendingUp className="w-4 h-4 text-green-500" />
                   <span className="text-xs font-semibold text-gray-600">Last Year Growth</span>
                 </div>
                 <span className={`text-xs font-bold ${lastYearGrowth >= 0 ? 'text-[#22c55e]' : 'text-red-500'}`}>
                   {lastYearGrowth >= 0 ? '+' : ''}{lastYearGrowth}%
                 </span>
               </div>
-              
+
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm">📈</span>
+                  <Activity className="w-4 h-4 text-amber-500" />
                   <span className="text-xs font-semibold text-gray-600">Last 3 Years Avg Growth</span>
                 </div>
                 <span className={`text-xs font-bold ${last3YearsAvgGrowth >= 0 ? 'text-[#22c55e]' : 'text-red-500'}`}>
                   {last3YearsAvgGrowth >= 0 ? '+' : ''}{last3YearsAvgGrowth.toFixed(1)}%
                 </span>
               </div>
-              
+
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm">✨</span>
+                  <Sparkles className="w-4 h-4 text-yellow-500" />
                   <span className="text-xs font-semibold text-gray-600">Next 3 Years Avg</span>
                 </div>
                 <span className={`text-xs font-bold ${next3YearsAvgGrowth >= 0 ? 'text-[#22c55e]' : 'text-red-500'}`}>
                   {next3YearsAvgGrowth >= 0 ? '+' : ''}{next3YearsAvgGrowth.toFixed(1)}%
                 </span>
               </div>
-              
+
               <div className="flex items-center justify-between pt-1">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm">🚀</span>
+                  <AlertTriangle className="w-4 h-4 text-red-500" />
                   <span className="text-xs font-semibold text-gray-600">Trend</span>
                 </div>
                 <span className="text-xs font-bold text-[#22c55e]">Strong Growth</span>
@@ -1196,8 +1200,7 @@ export default function EBITDAChart() {
                 const cw = dimensions.width - CHART_MARGIN.left - CHART_MARGIN.right
                 const ch = dimensions.height - CHART_MARGIN.top - CHART_MARGIN.bottom
                 const yVal = tooltipData.cursorValue
-                const label = selectedMetric.id === 'eps_diluted' || selectedMetric.id === 'eps_basic'
-                  ? `$${yVal?.toFixed(1)}` : `$${yVal?.toFixed(0)}B`
+                const label = chartUnit === '' ? `$${yVal?.toFixed(1)}` : `$${yVal?.toFixed(0)}${chartUnit}`
                 return (
                   <svg
                     style={{ position: 'absolute', top: 0, left: 0, pointerEvents: 'none', overflow: 'visible' }}
@@ -1231,7 +1234,7 @@ export default function EBITDAChart() {
                     </div>
                     <div className="flex justify-between items-center py-0.5">
                       <span className="text-gray-600 font-semibold">{selectedMetric.label}:</span>
-                      <span className="font-bold text-gray-900 text-sm">${tooltipData.data.value}B</span>
+                      <span className="font-bold text-gray-900 text-sm">{chartUnit === '' ? `$${tooltipData.data.value}` : `$${tooltipData.data.value}${chartUnit}`}</span>
                     </div>
                     <div className="flex justify-between items-center py-0.5">
                       <span className={`font-bold ${tooltipData.data.change >= 0 ? 'text-green-600' : 'text-red-500'}`}>% YoY:</span>
