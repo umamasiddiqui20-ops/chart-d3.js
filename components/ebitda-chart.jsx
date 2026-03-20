@@ -22,6 +22,9 @@ import {
 import { toast } from 'sonner'
 import { metricOptions, colorPresets, allChartsData } from '@/lib/chart-data'
 
+// ── Data key helper (supports quarterly date strings + annual years) ──────────
+const getDataKey = (d) => d.date || d.year.toString()
+
 // ── Color conversion helpers ──────────────────────────────────
 function hsvToRgb(h, s, v) {
   s /= 100; v /= 100
@@ -250,7 +253,7 @@ function MiniChart({ chart, barColor, onClick }) {
 
     const xScale = d3
       .scaleBand()
-      .domain(chartData.map(d => d.year.toString()))
+      .domain(chartData.map(d => getDataKey(d)))
       .range([0, width])
       .padding(0.32)
 
@@ -272,7 +275,7 @@ function MiniChart({ chart, barColor, onClick }) {
     // Find future start
     const futureStartIndex = chartData.findIndex(d => d.isFuture)
     if (futureStartIndex > 0) {
-      const futureStartX = xScale(chartData[futureStartIndex].year.toString()) || 0
+      const futureStartX = xScale(getDataKey(chartData[futureStartIndex])) || 0
 
       // Past label
       g.append('text')
@@ -332,7 +335,7 @@ function MiniChart({ chart, barColor, onClick }) {
       .enter()
       .append('rect')
       .attr('class', 'bar')
-      .attr('x', d => xScale(d.year.toString()) || 0)
+      .attr('x', d => xScale(getDataKey(d)) || 0)
       .attr('width', xScale.bandwidth())
       .attr('y', d => yScale(d.value))
       .attr('height', d => height - yScale(d.value))
@@ -341,7 +344,7 @@ function MiniChart({ chart, barColor, onClick }) {
 
     // Value + change labels above every bar (horizontal)
     chartData.forEach(d => {
-      const bx = (xScale(d.year.toString()) || 0) + xScale.bandwidth() / 2
+      const bx = (xScale(getDataKey(d)) || 0) + xScale.bandwidth() / 2
       const by = yScale(d.value)
 
       g.append('text')
@@ -506,15 +509,20 @@ export default function EBITDAChart() {
   const yScaleRef = useRef(null)
   const barColorRef = useRef(barColor)
   barColorRef.current = barColor
+  const chartUnitRef = useRef('B')
+  const chartMarginRef = useRef(CHART_MARGIN)
 
   // Dynamic data
   const currentChartMeta = allChartsData.find(c => c.id === selectedMetric.id) || allChartsData[0]
   const chartData = currentChartMeta.data
   const chartUnit = currentChartMeta.unit ?? 'B'
+  const isQuarterly = currentChartMeta.isQuarterly === true
+  chartUnitRef.current = chartUnit
 
   // Calculate statistics
-  const currentValue = chartData.find(d => d.year === 2024)?.value || chartData[chartData.length - 1].value
-  const lastYearGrowth = chartData.find(d => d.year === 2024)?.change || chartData[chartData.length - 1].change
+  const lastHistorical = chartData.filter(d => !d.isFuture).slice(-1)[0] || chartData[chartData.length - 1]
+  const currentValue = lastHistorical.value
+  const lastYearGrowth = lastHistorical.change
   const last3YearsAvgGrowth = (() => {
     const past = chartData.filter(d => !d.isFuture).slice(-3)
     return past.length ? past.reduce((acc, d) => acc + d.change, 0) / past.length : 0
@@ -529,7 +537,11 @@ export default function EBITDAChart() {
     const handleResize = () => {
       if (containerRef.current) {
         const { width } = containerRef.current.getBoundingClientRect()
-        setDimensions({ width: Math.max(width - 80, 800), height: 500 })
+        const mobile = width < 640
+        setDimensions({
+          width: Math.max(width - (mobile ? 10 : 80), mobile ? 500 : 700),
+          height: mobile ? 420 : 500,
+        })
       }
     }
     handleResize()
@@ -548,6 +560,7 @@ export default function EBITDAChart() {
   // Reset visibility on metric change so bars re-animate
   useEffect(() => {
     setIsVisible(false)
+    setIsPlaying(false)
     if (svgRef.current) {
       d3.select(svgRef.current).selectAll('.bar')
         .style('transition', 'none')
@@ -570,56 +583,100 @@ export default function EBITDAChart() {
     return () => document.removeEventListener('mousedown', handler)
   }, [isSettingsOpen])
 
-  // Play animation — reveal bars one by one, auto-pause when done
+  // Play animation — reveal bars one by one with counting numbers
   useEffect(() => {
     if (!svgRef.current) return
 
+    const svg = d3.select(svgRef.current)
+    const unit = chartUnitRef.current
+
     if (!isPlaying) {
-      // Cancel any pending timeouts
       playTimeoutsRef.current.forEach(id => clearTimeout(id))
       playTimeoutsRef.current = []
-      // Restore all bars to visible in case paused mid-animation
-      d3.select(svgRef.current).selectAll('.bar')
+      // Restore bars to full height
+      svg.selectAll('.bar')
         .style('transform-box', 'fill-box')
         .style('transform-origin', '50% 100%')
         .style('transition', 'transform 0.35s ease-out')
         .style('transform', 'scaleY(1)')
+      // Restore labels to final values (interrupt any running count-up transition)
+      svg.selectAll('.value-label')
+        .interrupt()
+        .attr('opacity', 1)
+        .text(d => unit === '' ? `$${d.value}` : `$${d.value}${unit}`)
+      svg.selectAll('.change-label')
+        .interrupt()
+        .attr('opacity', 1)
+        .text(d => `${d.change >= 0 ? '+' : ''}${d.change}%`)
       return
     }
 
-    const nodes = d3.select(svgRef.current).selectAll('.bar').nodes()
-    const total = nodes.length
-    const perBarDelay = 250
-    const barDuration = 500
+    const barNodes = svg.selectAll('.bar').nodes()
+    const total = barNodes.length
+    const perBarDelay = 220
+    const barDuration = 480
 
-    // Hide all bars instantly before starting
-    nodes.forEach(node => {
+    // Reset: collapse all bars, zero out labels
+    barNodes.forEach(node => {
       node.style.transition = 'none'
       node.style.transformBox = 'fill-box'
       node.style.transformOrigin = '50% 100%'
       node.style.transform = 'scaleY(0)'
     })
+    svg.selectAll('.value-label')
+      .attr('opacity', 0)
+      .text(unit === '' ? '$0' : `$0${unit}`)
+    svg.selectAll('.change-label').attr('opacity', 0)
 
     const ids = []
-    nodes.forEach((node, i) => {
-      const t = setTimeout(() => {
+    barNodes.forEach((node, i) => {
+      const d = d3.select(node).datum()
+      const tid = setTimeout(() => {
+        // Grow bar
         node.style.transition = `transform ${barDuration}ms cubic-bezier(0.22,1,0.36,1)`
         node.style.transform = 'scaleY(1)'
-        // After last bar finishes, auto-pause
+
+        if (d) {
+          const isEps = unit === ''
+          // Count value label from 0 → final
+          svg.selectAll('.value-label')
+            .filter(ld => getDataKey(ld) === getDataKey(d))
+            .attr('opacity', 1)
+            .transition()
+            .duration(barDuration)
+            .ease(d3.easeQuadOut)
+            .tween('text', function(ld) {
+              const finalVal = ld.value
+              return function(t) {
+                const val = finalVal * t
+                this.textContent = isEps ? `$${val.toFixed(1)}` : `$${Math.round(val)}${unit}`
+              }
+            })
+
+          // Fade in change % label after bar is ~55% grown
+          const changeTid = setTimeout(() => {
+            svg.selectAll('.change-label')
+              .filter(ld => getDataKey(ld) === getDataKey(d))
+              .attr('opacity', 0)
+              .transition().duration(220).attr('opacity', 1)
+          }, Math.round(barDuration * 0.55))
+          ids.push(changeTid)
+        }
+
         if (i === total - 1) {
           const autoStop = setTimeout(() => setIsPlaying(false), barDuration)
-          playTimeoutsRef.current.push(autoStop)
+          ids.push(autoStop)
         }
       }, i * perBarDelay)
-      ids.push(t)
+      ids.push(tid)
     })
-    playTimeoutsRef.current = ids
 
+    playTimeoutsRef.current = ids
     return () => {
       ids.forEach(id => clearTimeout(id))
       playTimeoutsRef.current = []
     }
-  }, [isPlaying])
+  }, [isPlaying]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // D3 Chart rendering
   useEffect(() => {
@@ -628,7 +685,10 @@ export default function EBITDAChart() {
     const svg = d3.select(svgRef.current)
     const barColor = barColorRef.current
 
-    const margin = CHART_MARGIN
+    const isMobile = dimensions.width < 620
+    // Mobile top margin is 70px so both rotated labels fit in the margin area above each bar
+    const margin = isMobile ? { top: 70, right: 65, bottom: 48, left: 30 } : CHART_MARGIN
+    chartMarginRef.current = margin
     const width = dimensions.width - margin.left - margin.right
     const height = dimensions.height - margin.top - margin.bottom
 
@@ -658,7 +718,7 @@ export default function EBITDAChart() {
     // Scales
     const xScale = d3
       .scaleBand()
-      .domain(chartData.map(d => d.year.toString()))
+      .domain(chartData.map(d => getDataKey(d)))
       .range([0, width])
       .padding(0.35)
 
@@ -673,7 +733,7 @@ export default function EBITDAChart() {
 
     // Find the dividing line between past and future
     const futureStartIndex = chartData.findIndex(d => d.isFuture)
-    const futureStartX = futureStartIndex >= 0 ? (xScale(chartData[futureStartIndex].year.toString()) || 0) : width
+    const futureStartX = futureStartIndex >= 0 ? (xScale(getDataKey(chartData[futureStartIndex])) || 0) : width
 
     // Square-box grid: horizontal lines at Y ticks + vertical lines through bar centers
     if (showGrid) {
@@ -687,7 +747,7 @@ export default function EBITDAChart() {
       })
       // Vertical lines through each bar center
       chartData.forEach(d => {
-        const bx = (xScale(d.year.toString()) || 0) + xScale.bandwidth() / 2
+        const bx = (xScale(getDataKey(d)) || 0) + xScale.bandwidth() / 2
         gridGroup.append('line')
           .attr('x1', bx).attr('x2', bx)
           .attr('y1', 0).attr('y2', height)
@@ -771,22 +831,22 @@ export default function EBITDAChart() {
 
     // Value-based gradient: small bars = light, large bars = user's chosen color
     const sortedByValue = [...chartData].sort((a, b) => a.value - b.value)
-    const rankMap = new Map(sortedByValue.map((d, i) => [d.year, i]))
+    const rankMap = new Map(sortedByValue.map((d, i) => [getDataKey(d), i]))
     const lightColor = d3.interpolateRgb(barColor, '#ffffff')(0.65)
     const getBarColor = (d) => {
-      const rank = rankMap.get(d.year) ?? 0
+      const rank = rankMap.get(getDataKey(d)) ?? 0
       const t = rank / Math.max(chartData.length - 1, 1)
       return d3.interpolateRgb(lightColor, barColor)(t)
     }
 
     // Data join — new bars enter at scaleY(0) for entrance animation
     const barsJoin = barsGroup.selectAll('.bar')
-      .data(chartData, d => d.year)
+      .data(chartData, d => getDataKey(d))
 
     barsJoin.enter()
       .append('rect')
       .attr('class', 'bar')
-      .attr('x', d => xScale(d.year.toString()) || 0)
+      .attr('x', d => xScale(getDataKey(d)) || 0)
       .attr('width', xScale.bandwidth())
       .attr('y', d => yScale(d.value))
       .attr('height', d => height - yScale(d.value))
@@ -800,7 +860,7 @@ export default function EBITDAChart() {
     // Update existing bar positions (e.g. on resize)
     const barsUpdate = barsGroup.selectAll('.bar')
     barsUpdate
-      .attr('x', d => xScale(d.year.toString()) || 0)
+      .attr('x', d => xScale(getDataKey(d)) || 0)
       .attr('width', xScale.bandwidth())
       .attr('y', d => yScale(d.value))
       .attr('height', d => height - yScale(d.value))
@@ -814,7 +874,7 @@ export default function EBITDAChart() {
 
     xAxis.selectAll('text')
       .attr('fill', '#6b7280')
-      .attr('font-size', '12px')
+      .attr('font-size', isMobile ? '9px' : '12px')
       .attr('font-weight', '500')
 
     xAxis.selectAll('line').remove()
@@ -832,36 +892,55 @@ export default function EBITDAChart() {
         .text(chartUnit === '' ? `$${(+tick).toFixed(1)}` : `$${(+tick).toFixed(1)}${chartUnit}`)
     })
 
-    // Labels (no animation on toggle)
+    // Labels — on mobile labels rotate -90° and stand vertically in the top margin above each bar.
+    // rotate(-90°) makes text flow upward; text-anchor='start' places the bottom of the
+    // upward-flowing text at the anchor point, so text grows upward from there.
+    const MOB_VAL_GAP  = 3   // px above bar top for value-label bottom
+    const MOB_VAL_H    = 28  // approx visual height of "$172B" at 8px rotated
+    const MOB_CHG_GAP  = 4   // gap between value-label top and change-label bottom
+    const MOB_CHG_Y    = MOB_VAL_GAP + MOB_VAL_H + MOB_CHG_GAP // ≈35
+
     const valueLabels = labelsGroup.selectAll('.value-label')
-      .data(showLabels ? chartData : [], d => d.year)
+      .data(showLabels ? chartData : [], d => getDataKey(d))
 
     valueLabels.enter()
       .append('text')
       .attr('class', 'value-label')
-      .attr('text-anchor', 'middle')
-      .attr('fill', '#111827')
-      .attr('font-size', '12px')
       .attr('font-weight', 'bold')
       .merge(valueLabels)
-      .attr('x', d => (xScale(d.year.toString()) || 0) + xScale.bandwidth() / 2)
-      .attr('y', d => yScale(d.value) - 22)
+      .attr('fill', '#111827')
+      .attr('font-size', isMobile ? '8px' : '12px')
+      .attr('text-anchor', isMobile ? 'start' : 'middle')
+      .attr('x', d => (xScale(getDataKey(d)) || 0) + xScale.bandwidth() / 2)
+      .attr('y', d => yScale(d.value) - (isMobile ? MOB_VAL_GAP : 26))
+      .attr('transform', d => {
+        if (!isMobile) return null
+        const bx = (xScale(getDataKey(d)) || 0) + xScale.bandwidth() / 2
+        const by = yScale(d.value) - MOB_VAL_GAP
+        return `rotate(-90, ${bx}, ${by})`
+      })
       .text(d => chartUnit === '' ? `$${d.value}` : `$${d.value}${chartUnit}`)
 
     valueLabels.exit().remove()
 
     const changeLabels = labelsGroup.selectAll('.change-label')
-      .data(showPercentChanges ? chartData : [], d => d.year)
+      .data(showPercentChanges ? chartData : [], d => getDataKey(d))
 
     changeLabels.enter()
       .append('text')
       .attr('class', 'change-label')
-      .attr('text-anchor', 'middle')
-      .attr('font-size', '11px')
       .attr('font-weight', 'bold')
       .merge(changeLabels)
-      .attr('x', d => (xScale(d.year.toString()) || 0) + xScale.bandwidth() / 2)
-      .attr('y', d => yScale(d.value) - 6)
+      .attr('font-size', isMobile ? '7.5px' : '11px')
+      .attr('text-anchor', isMobile ? 'start' : 'middle')
+      .attr('x', d => (xScale(getDataKey(d)) || 0) + xScale.bandwidth() / 2)
+      .attr('y', d => yScale(d.value) - (isMobile ? MOB_CHG_Y : 10))
+      .attr('transform', d => {
+        if (!isMobile) return null
+        const bx = (xScale(getDataKey(d)) || 0) + xScale.bandwidth() / 2
+        const by = yScale(d.value) - MOB_CHG_Y
+        return `rotate(-90, ${bx}, ${by})`
+      })
       .attr('fill', d => d.change >= 0 ? barColor : '#ef4444')
       .text(d => `${d.change >= 0 ? '+' : ''}${d.change}%`)
 
@@ -881,8 +960,8 @@ export default function EBITDAChart() {
       .on('mousemove', function(event) {
         const [mx, my] = d3.pointer(event, this)
         const nearest = chartData.reduce((prev, curr) => {
-          const px = (xScale(prev.year.toString()) || 0) + xScale.bandwidth() / 2
-          const cx = (xScale(curr.year.toString()) || 0) + xScale.bandwidth() / 2
+          const px = (xScale(getDataKey(prev)) || 0) + xScale.bandwidth() / 2
+          const cx = (xScale(getDataKey(curr)) || 0) + xScale.bandwidth() / 2
           return Math.abs(cx - mx) < Math.abs(px - mx) ? curr : prev
         })
         const cursorValue = yScale.invert(my)
@@ -904,10 +983,10 @@ export default function EBITDAChart() {
   useEffect(() => {
     if (!isVisible || !svgRef.current) return
     const sortedByValue = [...chartData].sort((a, b) => a.value - b.value)
-    const rankMap = new Map(sortedByValue.map((d, i) => [d.year, i]))
+    const rankMap = new Map(sortedByValue.map((d, i) => [getDataKey(d), i]))
     d3.select(svgRef.current).selectAll('.bar')
       .each(function(d) {
-        const rank = rankMap.get(d.year) ?? 0
+        const rank = rankMap.get(getDataKey(d)) ?? 0
         d3.select(this)
           .style('transition', `transform 0.55s cubic-bezier(0.22,1,0.36,1) ${rank * 55}ms`)
           .style('transform', 'scaleY(1)')
@@ -918,11 +997,11 @@ export default function EBITDAChart() {
   useEffect(() => {
     if (!isVisible || !svgRef.current) return
     const sortedByValue = [...chartData].sort((a, b) => a.value - b.value)
-    const rankMap = new Map(sortedByValue.map((d, i) => [d.year, i]))
+    const rankMap = new Map(sortedByValue.map((d, i) => [getDataKey(d), i]))
     const lightColor = d3.interpolateRgb(barColor, '#ffffff')(0.65)
     d3.select(svgRef.current).selectAll('.bar')
       .each(function(d, i) {
-        const rank = rankMap.get(d.year) ?? 0
+        const rank = rankMap.get(getDataKey(d)) ?? 0
         const t = rank / Math.max(chartData.length - 1, 1)
         const targetColor = d3.interpolateRgb(lightColor, barColor)(t)
         d3.select(this)
@@ -1192,13 +1271,14 @@ export default function EBITDAChart() {
           </div>
 
           {activeView === 'bars' ? (
-            <div ref={containerRef} className="w-full overflow-x-auto min-h-[500px] relative">
-              <svg ref={svgRef} className="w-full min-w-[800px]" />
+            <div ref={containerRef} className="w-full overflow-x-auto min-h-[420px] md:min-h-[500px] relative" style={{ WebkitOverflowScrolling: 'touch' }}>
+              <svg ref={svgRef} className="w-full" />
 
               {/* Crosshair overlay */}
               {tooltipData && showTooltip && (() => {
-                const cw = dimensions.width - CHART_MARGIN.left - CHART_MARGIN.right
-                const ch = dimensions.height - CHART_MARGIN.top - CHART_MARGIN.bottom
+                const cm = chartMarginRef.current
+                const cw = dimensions.width - cm.left - cm.right
+                const ch = dimensions.height - cm.top - cm.bottom
                 const yVal = tooltipData.cursorValue
                 const label = chartUnit === '' ? `$${yVal?.toFixed(1)}` : `$${yVal?.toFixed(0)}${chartUnit}`
                 return (
@@ -1206,7 +1286,7 @@ export default function EBITDAChart() {
                     style={{ position: 'absolute', top: 0, left: 0, pointerEvents: 'none', overflow: 'visible' }}
                     width={dimensions.width} height={dimensions.height}
                   >
-                    <g transform={`translate(${CHART_MARGIN.left},${CHART_MARGIN.top})`}>
+                    <g transform={`translate(${cm.left},${cm.top})`}>
                       <line x1={tooltipData.svgX} y1={0} x2={tooltipData.svgX} y2={ch} stroke="#9ca3af" strokeDasharray="5,4" strokeWidth={1} />
                       <line x1={0} y1={tooltipData.svgY} x2={cw} y2={tooltipData.svgY} stroke="#9ca3af" strokeDasharray="5,4" strokeWidth={1} />
                       <rect x={cw + 2} y={tooltipData.svgY - 10} width={52} height={20} rx={4} fill="#6b7280" />
@@ -1230,14 +1310,18 @@ export default function EBITDAChart() {
                   <div className="space-y-2">
                     <div className="flex items-center justify-between pb-2 border-b border-gray-100">
                       <span className="text-gray-500 font-medium tracking-wide">Date:</span>
-                      <span className="font-bold text-gray-900">Dec 31, {tooltipData.data.year}</span>
+                      <span className="font-bold text-gray-900">
+                        {tooltipData.data.date ? tooltipData.data.date : `Dec 31, ${tooltipData.data.year}`}
+                      </span>
                     </div>
                     <div className="flex justify-between items-center py-0.5">
                       <span className="text-gray-600 font-semibold">{selectedMetric.label}:</span>
                       <span className="font-bold text-gray-900 text-sm">{chartUnit === '' ? `$${tooltipData.data.value}` : `$${tooltipData.data.value}${chartUnit}`}</span>
                     </div>
                     <div className="flex justify-between items-center py-0.5">
-                      <span className={`font-bold ${tooltipData.data.change >= 0 ? 'text-green-600' : 'text-red-500'}`}>% YoY:</span>
+                      <span className={`font-bold ${tooltipData.data.change >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                        {isQuarterly ? '% QoQ:' : '% YoY:'}
+                      </span>
                       <span className={`font-bold ${tooltipData.data.change >= 0 ? 'text-green-600' : 'text-red-500'}`}>
                         {tooltipData.data.change >= 0 ? '+' : ''}{tooltipData.data.change}%
                       </span>
